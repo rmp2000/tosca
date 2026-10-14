@@ -31,6 +31,10 @@ topology_template:
       type: scalar-unit.size
       description: Additional disk for the dCache file storage pool.
       default: 20 GiB
+    storage_device:
+      type: string
+      description: Additional disk device for this Ramses image; must not be the system disk.
+      default: sdb
     dcache_vm_image:
       type: string
       description: Ubuntu 22.04 image URL; defaults to Ramses.
@@ -83,6 +87,7 @@ topology_template:
               type: tosca.relationships.AttachesTo
               properties:
                 location: /srv/dcache
+                device: { get_input: storage_device }
 
     my_block_storage:
       type: tosca.nodes.BlockStorage
@@ -93,7 +98,7 @@ topology_template:
       type: tosca.nodes.ec3.Application
       artifacts:
         dcache_role:
-          file: https://github.com/rmp2000/ansible-role-dcache/archive/bdc24926fc10574bdb0d9b29e6f3e64984f18cd0.tar.gz|dcache
+          file: https://github.com/rmp2000/ansible-role-dcache/archive/e0af8687bf0277a63addec34bd8e93aee4d27db2.tar.gz|dcache
           type: tosca.artifacts.AnsibleGalaxy.role
         postgresql_role:
           file: https://github.com/rmp2000/ansible-role-postgresql/archive/255211cded8db851ea916914dfe4f3a7b9ce6dee.tar.gz|postgresql
@@ -122,6 +127,7 @@ topology_template:
               dcache_user: { get_input: dcache_user }
               dcache_password: { get_input: dcache_password }
               dcache_database_password: { get_input: dcache_database_password }
+              dcache_require_pool_mount: true
 
   outputs:
     dcache_host:
