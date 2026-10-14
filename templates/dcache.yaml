@@ -93,7 +93,7 @@ topology_template:
       type: tosca.nodes.ec3.Application
       artifacts:
         dcache_role:
-          file: https://github.com/rmp2000/ansible-role-dcache/archive/06e43977e899acb4cd70254ef81fef746e0da8d9.tar.gz|dcache
+          file: https://github.com/rmp2000/ansible-role-dcache/archive/17ca4f23c06ee55bd44364f352d5039b9c8bf7b8.tar.gz|dcache
           type: tosca.artifacts.AnsibleGalaxy.role
         postgresql_role:
           file: https://github.com/rmp2000/ansible-role-postgresql/archive/255211cded8db851ea916914dfe4f3a7b9ce6dee.tar.gz|postgresql
