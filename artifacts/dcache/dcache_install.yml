@@ -3,3 +3,9 @@
   connection: local
   roles:
     - role: dcache
+  post_tasks:
+    - name: Optionally verify persistence across a dCache restart
+      ansible.builtin.include_role:
+        name: dcache
+        tasks_from: persistence
+      when: dcache_test_restart | default(false) | bool
