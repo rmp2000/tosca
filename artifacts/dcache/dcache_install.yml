@@ -11,6 +11,17 @@
   roles:
     - role: dcache
   post_tasks:
+    - name: Read the public storage certificate for platform clients
+      ansible.builtin.slurp:
+        src: /etc/dcache/tls/hostcert.pem
+      register: data_platform_public_certificate
+      when: data_platform_export_ca | default(false) | bool
+
+    - name: data_platform_dcache_ca
+      ansible.builtin.debug:
+        msg: "{{ data_platform_public_certificate.content | b64decode }}"
+      when: data_platform_export_ca | default(false) | bool
+
     - name: Verify the remote Chimera database connection and schema
       community.postgresql.postgresql_query:
         login_host: "{{ dcache_database_host }}"
