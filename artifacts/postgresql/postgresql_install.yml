@@ -1,5 +1,31 @@
 ---
 - hosts: localhost
   connection: local
+  pre_tasks:
+    - name: Verify the separate PostgreSQL data filesystem before installation
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "import os; p='/var/lib/postgresql'; s=os.statvfs(p); assert os.path.ismount(p) and s.f_blocks*s.f_frsize >= 1073741824, 'PostgreSQL requires a separate data filesystem of at least 1 GiB'"
+      changed_when: false
+      when: postgresql_require_data_mount | default(false) | bool
   roles:
     - role: postgresql
+  post_tasks:
+    - name: Verify PostgreSQL stores its cluster on the data disk
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_query:
+        login_port: "{{ postgresql_port }}"
+        query: SHOW data_directory
+      register: postgresql_data_check
+      changed_when: false
+      when: postgresql_require_data_mount | default(false) | bool
+
+    - name: Assert the PostgreSQL data directory is below the mounted directory
+      ansible.builtin.assert:
+        that:
+          - postgresql_data_check.query_result[0].data_directory.startswith('/var/lib/postgresql/')
+        success_msg: "DATA_PLATFORM_POSTGRESQL_STORAGE_OK"
+      when: postgresql_require_data_mount | default(false) | bool

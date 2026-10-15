@@ -1,9 +1,43 @@
 ---
 - hosts: localhost
   connection: local
+  pre_tasks:
+    - name: Wait for the remote PostgreSQL listener before configuring dCache
+      ansible.builtin.wait_for:
+        host: "{{ dcache_database_host }}"
+        port: "{{ dcache_database_port }}"
+        timeout: 120
+      when: not (dcache_manage_database | default(true) | bool)
   roles:
     - role: dcache
   post_tasks:
+    - name: Verify the remote Chimera database connection and schema
+      community.postgresql.postgresql_query:
+        login_host: "{{ dcache_database_host }}"
+        login_port: "{{ dcache_database_port }}"
+        login_user: "{{ dcache_database_user }}"
+        login_password: "{{ dcache_database_password }}"
+        login_db: "{{ dcache_database_name }}"
+        query: >-
+          SELECT host(inet_server_addr()) AS server,
+          host(inet_client_addr()) AS client,
+          current_database() AS database,
+          to_regclass('public.t_inodes')::text AS namespace
+      register: dcache_remote_database
+      changed_when: false
+      no_log: true
+      when: not (dcache_manage_database | default(true) | bool)
+
+    - name: Assert dCache uses the dedicated remote namespace database
+      ansible.builtin.assert:
+        that:
+          - dcache_remote_database.query_result[0].server == dcache_database_host
+          - dcache_remote_database.query_result[0].client != dcache_database_host
+          - dcache_remote_database.query_result[0].database == dcache_database_name
+          - dcache_remote_database.query_result[0].namespace == 't_inodes'
+        success_msg: "DATA_PLATFORM_REMOTE_CHIMERA_OK"
+      when: not (dcache_manage_database | default(true) | bool)
+
     - name: Optionally verify persistence across a dCache restart
       ansible.builtin.include_role:
         name: dcache
