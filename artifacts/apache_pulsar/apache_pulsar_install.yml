@@ -10,6 +10,11 @@
         stdin: "{{ {'host':apache_pulsar_bind_address,'broker_port':apache_pulsar_broker_port,'admin_port':apache_pulsar_admin_port,'namespace':apache_pulsar_tenant ~ '/' ~ apache_pulsar_namespace} | to_json }}"
       when: apache_pulsar_stage_reboot | default(false) | bool
 
+    - name: Report the durable message staged for the VM reboot test
+      ansible.builtin.debug:
+        msg: APACHE_PULSAR_DURABLE_MESSAGE_STAGED
+      when: apache_pulsar_stage_reboot | default(false) | bool
+
     - name: Optionally verify the original durable message after a VM reboot
       ansible.builtin.command:
         argv: [/opt/apache-pulsar-client/bin/python, /usr/local/bin/apache-pulsar-verify, check]
