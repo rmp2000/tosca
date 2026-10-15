@@ -1,5 +1,17 @@
 ---
 - hosts: localhost
   connection: local
+  pre_tasks:
+    - name: Read the storage public certificate through the IM Ansible inventory
+      ansible.builtin.slurp:
+        src: /etc/dcache/tls/hostcert.pem
+      delegate_to: "{{ groups[ingest_dcache_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      register: ingest_remote_public_certificate
+
+    - name: Set the trusted storage certificate
+      ansible.builtin.set_fact:
+        ingest_dcache_ca_pem: "{{ ingest_remote_public_certificate.content | b64decode }}"
   roles:
     - data_platform_ingest
