@@ -14,4 +14,4 @@
       ansible.builtin.set_fact:
         ingest_dcache_ca_pem: "{{ ingest_remote_public_certificate.content | b64decode }}"
   roles:
-    - data_platform_ingest
+    - data_platform_ingest_v1
