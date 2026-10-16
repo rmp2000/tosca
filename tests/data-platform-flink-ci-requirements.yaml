@@ -19,4 +19,4 @@ roles:
   - name: apache_flink
     src: https://github.com/rmp2000/ansible-role-apache-flink.git
     scm: git
-    version: 117b3f942083b71c07e0176fe5ed36432357175b
+    version: de945b5da71a4969591ecd98306622af8b5e87a7

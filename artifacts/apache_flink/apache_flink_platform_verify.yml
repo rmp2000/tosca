@@ -8,6 +8,11 @@
       output_topic: "{{ apache_flink_output_topic }}"
       subscription: "{{ apache_flink_subscription }}"
   tasks:
+    - name: Validate the requested verification mode
+      ansible.builtin.assert:
+        that:
+          - platform_flink_mode in ['smoke', 'stage', 'check', 'restart']
+
     - name: Install the immutable integration verifier on the Pulsar VM
       ansible.builtin.get_url:
         url: "{{ platform_flink_verifier_url }}"
