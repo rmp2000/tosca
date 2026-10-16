@@ -1,0 +1,25 @@
+---
+- hosts: localhost
+  connection: local
+  roles:
+    - apache_flink
+  post_tasks:
+    - name: Optionally stage state before a VM reboot
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, /usr/local/bin/apache-flink-verify, stage]
+      when: apache_flink_stage_reboot | default(false) | bool
+
+    - name: Report staged recovery state
+      ansible.builtin.debug:
+        msg: APACHE_FLINK_RECOVERY_STAGED
+      when: apache_flink_stage_reboot | default(false) | bool
+
+    - name: Optionally verify state after a VM reboot
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, /usr/local/bin/apache-flink-verify, check]
+      when: apache_flink_check_reboot | default(false) | bool
+
+    - name: Report successful VM reboot recovery
+      ansible.builtin.debug:
+        msg: APACHE_FLINK_VM_REBOOT_OK
+      when: apache_flink_check_reboot | default(false) | bool
