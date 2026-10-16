@@ -1,0 +1,91 @@
+---
+- name: Install the real component roles on one disposable CI runner
+  hosts: localhost
+  connection: local
+  become: true
+  tasks:
+    - name: Create the private CI credential directory
+      ansible.builtin.file:
+        path: /var/tmp/data-platform-ci
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Check for credentials from the first convergence
+      ansible.builtin.stat:
+        path: /var/tmp/data-platform-ci/credentials.json
+      register: platform_ci_credential_file
+
+    - name: Generate disposable credentials once for the CI runner
+      ansible.builtin.copy:
+        content: >-
+          {{ {'database_password': lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']),
+              'dcache_password': lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']),
+              'token_secret': lookup('ansible.builtin.password', '/dev/null', length=64, chars=['ascii_letters', 'digits'])} | to_nice_json }}
+        dest: /var/tmp/data-platform-ci/credentials.json
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+      when: not platform_ci_credential_file.stat.exists
+
+    - name: Read disposable credentials without exposing them
+      ansible.builtin.slurp:
+        src: /var/tmp/data-platform-ci/credentials.json
+      register: platform_ci_private
+      no_log: true
+
+    - name: Preserve credentials across all component plays
+      ansible.builtin.set_fact:
+        platform_ci: "{{ platform_ci_private.content | b64decode | from_json }}"
+      no_log: true
+
+    - name: Install the PostgreSQL namespace database
+      ansible.builtin.include_role:
+        name: postgresql
+      vars:
+        postgresql_database: chimera
+        postgresql_user: dcache
+        postgresql_password: "{{ platform_ci.database_password }}"
+        postgresql_listen_addresses: 127.0.0.1
+        postgresql_pg_hba_address: 127.0.0.1/32
+
+    - name: Install dCache using the shared test database
+      ansible.builtin.include_role:
+        name: dcache
+      vars:
+        dcache_manage_database: false
+        dcache_database_host: 127.0.0.1
+        dcache_database_password: "{{ platform_ci.database_password }}"
+        dcache_password: "{{ platform_ci.dcache_password }}"
+
+    - name: Install the real Pulsar broker
+      ansible.builtin.include_role:
+        name: apache_pulsar
+      vars:
+        apache_pulsar_bind_address: 127.0.0.1
+        apache_pulsar_token_secret: "{{ platform_ci.token_secret }}"
+
+- name: Install the existing storage bridge with the platform wrapper
+  ansible.builtin.import_playbook: ../artifacts/data_platform_ingest/data_platform_ingest_install.yml
+  vars:
+    ingest_broker_host: 127.0.0.1
+    ingest_dcache_host: 127.0.0.1
+    ingest_dcache_password: "{{ platform_ci.dcache_password }}"
+    ingest_dcache_inventory_group: dcache_vm
+
+- name: Install Flink in messaging mode with the real platform wrapper
+  ansible.builtin.import_playbook: ../artifacts/apache_flink/apache_flink_platform_install.yml
+  vars:
+    apache_flink_mode: pulsar
+    apache_flink_broker_host: 127.0.0.1
+    apache_flink_pulsar_inventory_group: apache_pulsar_vm
+
+- name: Verify the live pipeline and persisted aggregate recovery
+  ansible.builtin.import_playbook: ../artifacts/apache_flink/apache_flink_platform_verify.yml
+  vars:
+    apache_flink_input_topic: persistent://platform/events/measurements
+    apache_flink_output_topic: persistent://platform/events/data-platform
+    apache_flink_subscription: flink-measurements
+    platform_flink_inventory_group: apache_flink_vm

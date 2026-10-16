@@ -1,0 +1,22 @@
+---
+roles:
+  - name: postgresql
+    src: https://github.com/rmp2000/ansible-role-postgresql.git
+    scm: git
+    version: 255211cded8db851ea916914dfe4f3a7b9ce6dee
+  - name: dcache
+    src: https://github.com/rmp2000/ansible-role-dcache.git
+    scm: git
+    version: e0af8687bf0277a63addec34bd8e93aee4d27db2
+  - name: apache_pulsar
+    src: https://github.com/rmp2000/ansible-role-apache-pulsar.git
+    scm: git
+    version: d74b40889208ce67f26c09b7d2f64b64287facd2
+  - name: data_platform_ingest_v1
+    src: https://github.com/rmp2000/ansible-role-data-platform-ingest.git
+    scm: git
+    version: 2c39f810bd84154fbab2f223baf0ad3a28a42b4f
+  - name: apache_flink
+    src: https://github.com/rmp2000/ansible-role-apache-flink.git
+    scm: git
+    version: 117b3f942083b71c07e0176fe5ed36432357175b

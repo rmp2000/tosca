@@ -1,0 +1,44 @@
+name: Data platform Flink integration
+on:
+  push:
+    branches: [feature/data-platform-flink]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      ANSIBLE_ROLES_PATH: ${{ github.workspace }}/.ci-roles
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the tested Ansible bundle
+        run: python -m pip install 'ansible==8.7.0'
+      - name: Install only the pinned platform roles
+        run: ansible-galaxy role install -r tests/data-platform-flink-ci-requirements.yaml
+      - name: Prepare immutable verifier inputs
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          revision = os.environ['GITHUB_SHA']
+          assert re.fullmatch('[0-9a-f]{40}', revision)
+          path = 'artifacts/apache_flink/verify_pipeline.py'
+          settings = {'platform_flink_verifier_url': 'https://raw.githubusercontent.com/rmp2000/tosca/'+revision+'/'+path,
+                      'platform_flink_verifier_checksum': 'sha256:'+hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+          Path('ci-verifier.json').write_text(json.dumps(settings))
+          PY
+      - name: Verify real processing, duplicate rejection and state recovery
+        run: |
+          ansible-playbook -b -i tests/data-platform-flink-ci-inventory.yaml tests/data-platform-flink-ci.yml --syntax-check
+          ansible-playbook -b -i tests/data-platform-flink-ci-inventory.yaml tests/data-platform-flink-ci.yml -e @ci-verifier.json -e platform_flink_verification_mode=restart
+      - name: Verify normal application idempotence
+        run: |
+          set -o pipefail
+          ansible-playbook -b -i tests/data-platform-flink-ci-inventory.yaml tests/data-platform-flink-ci.yml -e @ci-verifier.json | tee /tmp/platform-flink-idempotence.log
+          grep -Eq 'changed=0[[:space:]]+unreachable=0[[:space:]]+failed=0' /tmp/platform-flink-idempotence.log
+      - name: Diagnostics on failure
+        if: failure() || cancelled()
+        run: |
+          sudo journalctl -u apache-flink-jobmanager -u apache-flink-taskmanager -u data-platform-ingest -u apache-pulsar -u dcache@dCacheDomain --no-pager -n 160

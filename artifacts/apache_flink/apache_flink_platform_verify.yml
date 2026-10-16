@@ -1,0 +1,76 @@
+---
+- hosts: localhost
+  connection: local
+  vars:
+    platform_flink_mode: "{{ platform_flink_verification_mode | default('smoke') }}"
+    platform_flink_endpoints:
+      input_topic: "{{ apache_flink_input_topic }}"
+      output_topic: "{{ apache_flink_output_topic }}"
+      subscription: "{{ apache_flink_subscription }}"
+  tasks:
+    - name: Install the immutable integration verifier on the Pulsar VM
+      ansible.builtin.get_url:
+        url: "{{ platform_flink_verifier_url }}"
+        dest: /usr/local/bin/data-platform-flink-verify
+        checksum: "{{ platform_flink_verifier_checksum }}"
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Verify measurement processing and storage through the live pipeline
+      ansible.builtin.command:
+        argv: [/opt/data-platform-ingest/bin/python, /usr/local/bin/data-platform-flink-verify, smoke]
+        stdin: "{{ platform_flink_endpoints | to_json }}"
+      changed_when: false
+
+    - name: Report verified Flink processing and dCache storage
+      ansible.builtin.debug:
+        msg: DATA_PLATFORM_FLINK_FLOW_OK
+
+    - name: Stage a checkpointed aggregate for the optional recovery test
+      ansible.builtin.command:
+        argv: [/opt/data-platform-ingest/bin/python, /usr/local/bin/data-platform-flink-verify, stage]
+        stdin: "{{ platform_flink_endpoints | to_json }}"
+      when: platform_flink_mode in ['stage', 'restart']
+
+    - name: Report staged pipeline state
+      ansible.builtin.debug:
+        msg: DATA_PLATFORM_FLINK_RECOVERY_STAGED
+      when: platform_flink_mode in ['stage', 'restart']
+
+    - name: Optionally restart only the Flink application services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop: [apache-flink-jobmanager, apache-flink-taskmanager]
+      delegate_to: "{{ groups[platform_flink_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      when: platform_flink_mode == 'restart'
+
+    - name: Wait for restored Flink state after a service or VM restart
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8081/jobs/bd003e1f1db333f8652cb8a391d5ab3a/checkpoints
+        return_content: true
+      register: platform_flink_checkpoint
+      until: >-
+        platform_flink_checkpoint.status == 200 and
+        platform_flink_checkpoint.json.latest.restored is defined and
+        platform_flink_checkpoint.json.latest.restored != none
+      retries: 48
+      delay: 5
+      delegate_to: "{{ groups[platform_flink_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      when: platform_flink_mode in ['check', 'restart']
+
+    - name: Verify preserved aggregates and duplicate handling after recovery
+      ansible.builtin.command:
+        argv: [/opt/data-platform-ingest/bin/python, /usr/local/bin/data-platform-flink-verify, check]
+        stdin: "{{ platform_flink_endpoints | to_json }}"
+      when: platform_flink_mode in ['check', 'restart']
+
+    - name: Report successful pipeline recovery
+      ansible.builtin.debug:
+        msg: DATA_PLATFORM_FLINK_STATE_RECOVERY_OK
+      when: platform_flink_mode in ['check', 'restart']

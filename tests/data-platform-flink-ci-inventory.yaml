@@ -1,0 +1,16 @@
+---
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3
+  children:
+    apache_pulsar_vm:
+      hosts:
+        localhost:
+    apache_flink_vm:
+      hosts:
+        localhost:
+    dcache_vm:
+      hosts:
+        localhost:

@@ -1,0 +1,60 @@
+---
+- hosts: localhost
+  connection: local
+  pre_tasks:
+    - name: Ensure the input and output topics exist on the Pulsar VM
+      ansible.builtin.command:
+        argv:
+          - /opt/apache-pulsar-client/bin/python
+          - -c
+          - |
+            import json, ssl, sys, urllib.request, urllib.error
+            from pathlib import Path
+            host = sys.argv[1]
+            context = ssl.create_default_context(cafile='/etc/apache-pulsar/tls/server.crt')
+            token = Path('/etc/apache-pulsar/admin.token').read_text().strip()
+            created = []
+            for topic in sys.argv[2:]:
+                url = 'https://'+host+':8443/admin/v2/persistent/'+topic.removeprefix('persistent://')
+                request = urllib.request.Request(url, method='PUT', headers={'Authorization': 'Bearer '+token})
+                try:
+                    with urllib.request.urlopen(request, context=context, timeout=30):
+                        created.append(topic)
+                except urllib.error.HTTPError as error:
+                    if error.code != 409:
+                        raise
+            print(json.dumps({'created': created}))
+          - "{{ apache_flink_broker_host }}"
+          - "{{ apache_flink_input_topic }}"
+          - "{{ apache_flink_output_topic }}"
+      delegate_to: "{{ groups[apache_flink_pulsar_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      register: platform_flink_topics
+      changed_when: (platform_flink_topics.stdout | from_json).created | length > 0
+      no_log: true
+
+    - name: Read the scoped client token through the IM SSH channel
+      ansible.builtin.slurp:
+        src: /etc/apache-pulsar/client.token
+      delegate_to: "{{ groups[apache_flink_pulsar_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      register: platform_flink_client
+      no_log: true
+
+    - name: Read the public Pulsar certificate through the IM SSH channel
+      ansible.builtin.slurp:
+        src: /etc/apache-pulsar/tls/server.crt
+      delegate_to: "{{ groups[apache_flink_pulsar_inventory_group][0] }}"
+      connection: ssh
+      become: true
+      register: platform_flink_certificate
+
+    - name: Supply only scoped credentials to the Flink role
+      ansible.builtin.set_fact:
+        apache_flink_token: "{{ platform_flink_client.content | b64decode }}"
+        apache_flink_ca_pem: "{{ platform_flink_certificate.content | b64decode }}"
+      no_log: true
+  roles:
+    - apache_flink
