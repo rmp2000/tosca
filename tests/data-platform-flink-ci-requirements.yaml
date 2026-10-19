@@ -11,7 +11,7 @@ roles:
   - name: apache_pulsar
     src: https://github.com/rmp2000/ansible-role-apache-pulsar.git
     scm: git
-    version: d74b40889208ce67f26c09b7d2f64b64287facd2
+    version: 4ab9ed0e54f19fa72843c72f86730abe747daff6
   - name: data_platform_ingest_v1
     src: https://github.com/rmp2000/ansible-role-data-platform-ingest.git
     scm: git
