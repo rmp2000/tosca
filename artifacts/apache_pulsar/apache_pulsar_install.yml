@@ -2,7 +2,7 @@
 - hosts: localhost
   connection: local
   roles:
-    - role: apache_pulsar
+    - role: apache_pulsar_v2
   post_tasks:
     - name: Optionally stage a durable message before a VM reboot test
       ansible.builtin.command:
