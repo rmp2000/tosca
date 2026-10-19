@@ -2,7 +2,7 @@
 - hosts: localhost
   connection: local
   pre_tasks:
-    - name: Ensure the input and output topics exist on the Pulsar VM
+    - name: Preserve managed topics during a cold Flink installation and ensure they exist
       ansible.builtin.command:
         argv:
           - /opt/apache-pulsar-client/bin/python
@@ -14,6 +14,22 @@
             context = ssl.create_default_context(cafile='/etc/apache-pulsar/tls/server.crt')
             token = Path('/etc/apache-pulsar/admin.token').read_text().strip()
             created = []
+            policy_changed = False
+            namespaces = sorted({topic.removeprefix('persistent://').rsplit('/', 1)[0] for topic in sys.argv[2:]})
+            for namespace in namespaces:
+                url = 'https://'+host+':8443/admin/v2/namespaces/'+namespace+'/inactiveTopicPolicies'
+                request = urllib.request.Request(url, headers={'Authorization': 'Bearer '+token})
+                with urllib.request.urlopen(request, context=context, timeout=30) as response:
+                    raw = response.read()
+                    policy = json.loads(raw) if raw else None
+                if policy is None or policy.get('deleteWhileInactive', True):
+                    desired = {'deleteWhileInactive': False,
+                               'inactiveTopicDeleteMode': 'delete_when_no_subscriptions',
+                               'maxInactiveDurationSeconds': 0}
+                    request = urllib.request.Request(url, method='POST', data=json.dumps(desired).encode(),
+                        headers={'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
+                    with urllib.request.urlopen(request, context=context, timeout=30):
+                        policy_changed = True
             for topic in sys.argv[2:]:
                 url = 'https://'+host+':8443/admin/v2/persistent/'+topic.removeprefix('persistent://')
                 request = urllib.request.Request(url, method='PUT', headers={'Authorization': 'Bearer '+token})
@@ -23,7 +39,7 @@
                 except urllib.error.HTTPError as error:
                     if error.code != 409:
                         raise
-            print(json.dumps({'created': created}))
+            print(json.dumps({'created': created, 'policy_changed': policy_changed}))
           - "{{ apache_flink_broker_host }}"
           - "{{ apache_flink_input_topic }}"
           - "{{ apache_flink_output_topic }}"
@@ -31,7 +47,9 @@
       connection: ssh
       become: true
       register: platform_flink_topics
-      changed_when: (platform_flink_topics.stdout | from_json).created | length > 0
+      changed_when: >-
+        (platform_flink_topics.stdout | from_json).created | length > 0 or
+        (platform_flink_topics.stdout | from_json).policy_changed
       no_log: true
 
     - name: Read the scoped client token through the IM SSH channel
