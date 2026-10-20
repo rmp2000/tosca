@@ -32,7 +32,11 @@ def main():
             if state['msgBacklog']+state.get('unackedMessages',0):return False
         return True
     def rows():
-        return [json.loads(line) for line in target.query("SELECT event_id,sensor,count,sum,mean,payload,payload_sha256 FROM analytics.events FINAL WHERE startsWith(sensor,'iris_demo_v1_') FORMAT JSONEachRow").splitlines()]
+        values=[json.loads(line) for line in target.query("SELECT event_id,sensor,count,sum,mean,payload,payload_sha256 FROM analytics.events FINAL WHERE startsWith(sensor,'iris_demo_v1_') FORMAT JSONEachRow").splitlines()]
+        for row in values:
+            row['count']=int(row['count'])
+            row['sum']=float(row['sum']);row['mean']=float(row['mean'])
+        return values
     def verify():
         values=rows()
         if len(values)!=len(records) or {v['event_id'] for v in values}!=set(ids):return False
