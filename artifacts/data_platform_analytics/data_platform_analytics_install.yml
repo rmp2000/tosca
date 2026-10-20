@@ -26,3 +26,9 @@
       no_log: true
   roles:
     - role: "{{ analytics_role_name }}"
+
+  post_tasks:
+    - name: Report successful target retry and durable broker recovery
+      ansible.builtin.debug:
+        msg: DATA_PLATFORM_ANALYTICS_BROKER_RECOVERY_OK
+      when: analytics_test_recovery | default(false) | bool
