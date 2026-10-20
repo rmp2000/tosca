@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 import sys
+import ssl
+import urllib.request
 import time
 sys.path.insert(0,'/usr/local/lib/data-platform-analytics')
 import consumer
@@ -20,6 +22,15 @@ def main():
     for value in records:
         expected.setdefault(value['sensor'],[]).append(value['value'])
         ids.append('measurement-'+hashlib.sha256((value['sensor']+'\0'+value['event_id']).encode()).hexdigest())
+    context=ssl.create_default_context(cafile=config['pulsar_ca'])
+    admin=Path('/etc/apache-pulsar/admin.token').read_text().strip()
+    def drained():
+        for topic,subscription in [(config['input_topic'],'flink-measurements'),(config['topic'],config['subscription']),(archive_config['topic'],archive_config['subscription'])]:
+            url=config['admin_url']+'/admin/v2/persistent/'+topic.removeprefix('persistent://')+'/stats'
+            request=urllib.request.Request(url,headers={'Authorization':'Bearer '+admin})
+            with urllib.request.urlopen(request,context=context,timeout=15) as response:state=json.load(response)['subscriptions'][subscription]
+            if state['msgBacklog']+state.get('unackedMessages',0):return False
+        return True
     def rows():
         return [json.loads(line) for line in target.query("SELECT event_id,sensor,count,sum,mean,payload,payload_sha256 FROM analytics.events FINAL WHERE startsWith(sensor,'iris_demo_v1_') FORMAT JSONEachRow").splitlines()]
     def verify():
@@ -50,8 +61,14 @@ def main():
         for iteration in range(2):
             for value in records:producer.send(json.dumps(value,allow_nan=False).encode())
             verified=wait()
-        # Allow a checkpoint and delivery interval before checking duplicate replay.
-        time.sleep(20);verified=wait()
+        end=time.monotonic()+360
+        while time.monotonic()<end:
+            try:
+                if drained():break
+            except Exception:pass
+            time.sleep(2)
+        else:raise RuntimeError('Input source or independent output subscriptions did not drain after replay')
+        verified=wait()
     finally:client.close()
     result={'dataset':'iris_demo_v1','input_records':len(records),'published_with_replay':2*len(records),'unique_output_records':len(verified),'sensors':{k:{'count':len(v),'sum':sum(v),'mean':sum(v)/len(v)} for k,v in sorted(expected.items())}}
     Path('/var/lib/data-platform-analytics/demo-verification.json').write_text(json.dumps(result,indent=2))
