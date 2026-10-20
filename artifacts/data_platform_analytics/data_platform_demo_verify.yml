@@ -1,41 +1,44 @@
 - hosts: localhost
   connection: local
   tasks:
-  - name: Download the immutable CSV verification program
-    ansible.builtin.get_url:
-      url: '{{ platform_demo_verifier_url }}'
-      checksum: '{{ platform_demo_verifier_checksum }}'
-      dest: /usr/local/bin/data-platform-demo-verify
-      mode: '0755'
-  - name: Verify CSV replay SQL aggregates and exact dCache payloads
-    ansible.builtin.command:
-      argv:
-      - /opt/data-platform-analytics/bin/python
-      - /usr/local/bin/data-platform-demo-verify
-    changed_when: false
-    register: platform_demo_result
-  - name: Report reproducible flow verification
-    ansible.builtin.debug:
-      msg: '{{ platform_demo_result.stdout_lines }}'
-  - name: Install the immutable dashboard data verifier
-    ansible.builtin.get_url:
-      url: '{{ platform_dashboard_verifier_url }}'
-      checksum: '{{ platform_dashboard_verifier_checksum }}'
-      dest: /usr/local/bin/data-platform-dashboard-verify
-      mode: '0755'
-    delegate_to: '{{ groups[''apache_superset_vm''][0] }}'
-    connection: ssh
-    become: true
-  - name: Compare both saved dashboard charts with the CSV totals
-    ansible.builtin.command:
-      argv:
-      - /opt/apache-superset-py310/bin/python
-      - /usr/local/bin/data-platform-dashboard-verify
-      stdin: '{{ platform_demo_result.stdout_lines[0] | from_json | to_json }}'
-    changed_when: false
-    delegate_to: '{{ groups[''apache_superset_vm''][0] }}'
-    connection: ssh
-    become: true
-    register: platform_dashboard_result
-  - ansible.builtin.debug:
-      msg: '{{ platform_dashboard_result.stdout_lines }}'
+  - name: Verify the complete CSV archive SQL and dashboard use case
+    block:
+    - name: Download the immutable CSV verification program
+      ansible.builtin.get_url:
+        url: '{{ platform_demo_verifier_url }}'
+        checksum: '{{ platform_demo_verifier_checksum }}'
+        dest: /usr/local/bin/data-platform-demo-verify
+        mode: '0755'
+    - name: Verify CSV replay SQL aggregates and exact dCache payloads
+      ansible.builtin.command:
+        argv:
+        - /opt/data-platform-analytics/bin/python
+        - /usr/local/bin/data-platform-demo-verify
+      changed_when: false
+      register: platform_demo_result
+    - name: Report reproducible flow verification
+      ansible.builtin.debug:
+        msg: '{{ platform_demo_result.stdout_lines }}'
+    - name: Install the immutable dashboard data verifier
+      ansible.builtin.get_url:
+        url: '{{ platform_dashboard_verifier_url }}'
+        checksum: '{{ platform_dashboard_verifier_checksum }}'
+        dest: /usr/local/bin/data-platform-dashboard-verify
+        mode: '0755'
+      delegate_to: '{{ groups[''apache_superset_vm''][0] }}'
+      connection: ssh
+      become: true
+    - name: Compare both saved dashboard charts with the CSV totals
+      ansible.builtin.command:
+        argv:
+        - /opt/apache-superset-py310/bin/python
+        - /usr/local/bin/data-platform-dashboard-verify
+        stdin: '{{ platform_demo_result.stdout_lines[0] | from_json | to_json }}'
+      changed_when: false
+      delegate_to: '{{ groups[''apache_superset_vm''][0] }}'
+      connection: ssh
+      become: true
+      register: platform_dashboard_result
+    - ansible.builtin.debug:
+        msg: '{{ platform_dashboard_result.stdout_lines }}'
+    when: platform_demo_verify | default(true) | bool
