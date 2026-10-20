@@ -2,4 +2,4 @@
 - hosts: localhost
   connection: local
   roles:
-    - clickhouse
+    - role: "{{ clickhouse_role_name | default('clickhouse') }}"

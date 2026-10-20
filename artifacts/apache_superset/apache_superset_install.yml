@@ -2,4 +2,4 @@
 - hosts: localhost
   connection: local
   roles:
-    - apache_superset
+    - role: "{{ apache_superset_role_name | default('apache_superset') }}"
