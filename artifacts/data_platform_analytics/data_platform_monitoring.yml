@@ -1,0 +1,129 @@
+---
+- hosts: localhost
+  connection: local
+  tasks:
+    - name: Install native host metrics on each private interface
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        policy_rc_d: 101
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      delegate_to: "{{ groups[item][0] }}"
+      connection: ssh
+      become: true
+      loop: "{{ platform_monitor_groups }}"
+    - name: Bind host metrics to the selected private address
+      ansible.builtin.copy:
+        content: 'ARGS="--web.listen-address={{ platform_monitor_hosts[item] }}:9100"'
+        dest: /etc/default/prometheus-node-exporter
+        mode: '0644'
+      delegate_to: "{{ groups[item][0] }}"
+      connection: ssh
+      become: true
+      loop: "{{ platform_monitor_groups }}"
+      register: monitor_exporter_config
+    - name: Apply changed host metric bindings
+      ansible.builtin.systemd:
+        name: prometheus-node-exporter
+        state: restarted
+        enabled: true
+      delegate_to: "{{ groups[item.item][0] }}"
+      connection: ssh
+      become: true
+      loop: "{{ monitor_exporter_config.results }}"
+      when: item.changed
+    - name: Enable every private host exporter
+      ansible.builtin.systemd:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+      delegate_to: "{{ groups[item][0] }}"
+      connection: ssh
+      become: true
+      loop: "{{ platform_monitor_groups }}"
+    - name: Install the private monitoring server
+      ansible.builtin.apt:
+        name: prometheus
+        policy_rc_d: 101
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Bind monitoring UI to loopback only
+      ansible.builtin.copy:
+        content: 'ARGS="--web.listen-address=127.0.0.1:9090 --storage.tsdb.path=/srv/apache-superset/prometheus --storage.tsdb.retention.time=7d"'
+        dest: /etc/default/prometheus
+        mode: '0644'
+      notify: Restart private monitoring
+    - name: Keep monitoring history on the persistent disk
+      ansible.builtin.file:
+        path: /srv/apache-superset/prometheus
+        state: directory
+        owner: prometheus
+        group: prometheus
+        mode: '0750'
+    - name: Configure private host and ClickHouse targets
+      ansible.builtin.copy:
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+          rule_files:
+            - /etc/prometheus/data-platform-rules.yml
+          scrape_configs:
+            - job_name: platform-hosts
+              static_configs:
+          {% for group in platform_monitor_groups %}
+                - targets: ['{{ platform_monitor_hosts[group] }}:9100']
+                  labels:
+                    node: '{{ group }}'
+          {% endfor %}
+            - job_name: clickhouse
+              static_configs:
+                - targets: ['{{ platform_monitor_clickhouse_host }}:9363']
+        dest: /etc/prometheus/prometheus.yml
+        mode: '0644'
+      notify: Restart private monitoring
+    - name: Configure availability and disk-space rules
+      ansible.builtin.copy:
+        content: |
+          groups:
+            - name: data-platform
+              rules:
+                - alert: PlatformTargetDown
+                  expr: up == 0
+                  for: 2m
+                  labels: {severity: critical}
+                - alert: PlatformDiskSpaceLow
+                  expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes < 0.15
+                  for: 5m
+                  labels: {severity: warning}
+        dest: /etc/prometheus/data-platform-rules.yml
+        mode: '0644'
+      notify: Restart private monitoring
+    - name: Validate configuration before applying it
+      ansible.builtin.command: promtool check config /etc/prometheus/prometheus.yml
+      changed_when: false
+    - ansible.builtin.meta: flush_handlers
+    - name: Enable monitoring at boot
+      ansible.builtin.systemd:
+        name: prometheus
+        state: started
+        enabled: true
+    - name: Verify every private scrape target
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9090/api/v1/targets
+        return_content: true
+      register: monitoring_targets
+      until: >-
+        monitoring_targets.json.data.activeTargets | length == 7 and
+        monitoring_targets.json.data.activeTargets | selectattr('health', 'equalto', 'up') | list | length == 7
+      retries: 12
+      delay: 10
+    - ansible.builtin.debug:
+        msg: DATA_PLATFORM_PRIVATE_MONITORING_OK
+  handlers:
+    - name: Restart private monitoring
+      ansible.builtin.systemd:
+        name: prometheus
+        state: restarted
