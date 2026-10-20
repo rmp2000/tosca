@@ -1,0 +1,28 @@
+---
+- hosts: localhost
+  connection: local
+  pre_tasks:
+    - name: Read the scoped Pulsar token
+      ansible.builtin.slurp:
+        src: /etc/apache-pulsar/client.token
+      register: analytics_token
+      no_log: true
+    - name: Read the trusted Pulsar certificate
+      ansible.builtin.slurp:
+        src: /etc/apache-pulsar/tls/server.crt
+      register: analytics_broker_certificate
+    - name: Read only the public ClickHouse certificate
+      ansible.builtin.slurp:
+        src: /etc/clickhouse-platform/tls/server.crt
+      delegate_to: "{{ groups['clickhouse_vm'][0] }}"
+      connection: ssh
+      become: true
+      register: analytics_target_certificate
+    - name: Supply scoped credentials and public certificates
+      ansible.builtin.set_fact:
+        analytics_pulsar_token: "{{ analytics_token.content | b64decode }}"
+        analytics_pulsar_ca_pem: "{{ analytics_broker_certificate.content | b64decode }}"
+        analytics_clickhouse_ca_pem: "{{ analytics_target_certificate.content | b64decode }}"
+      no_log: true
+  roles:
+    - role: "{{ analytics_role_name }}"

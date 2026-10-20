@@ -1,0 +1,16 @@
+---
+- hosts: localhost
+  connection: local
+  pre_tasks:
+    - name: Retrieve the trusted public ClickHouse certificate
+      ansible.builtin.slurp:
+        src: /etc/clickhouse-platform/tls/server.crt
+      delegate_to: "{{ groups['clickhouse_vm'][0] }}"
+      connection: ssh
+      become: true
+      register: superset_target_certificate
+    - name: Supply the analytics TLS trust
+      ansible.builtin.set_fact:
+        apache_superset_clickhouse_ca_pem: "{{ superset_target_certificate.content | b64decode }}"
+  roles:
+    - role: "{{ apache_superset_role_name }}"
