@@ -103,6 +103,20 @@
     connection: ssh
     become: true
     loop: '{{ platform_monitor_groups }}'
+  - name: Verify real service health and flow probes before accepting monitoring
+    ansible.builtin.command:
+      argv:
+      - /usr/bin/python3
+      - -c
+      - from pathlib import Path; rows=Path('/var/lib/prometheus/node-exporter/data-platform.prom').read_text().splitlines();
+        checks=[row for row in rows if row.startswith(('platform_service_up{','platform_probe_success ','platform_flink_job_running
+        '))]; assert checks and all(float(row.rsplit(' ',1)[1])==1 for row in checks), 'A service or flow probe
+        is unhealthy'; print('PRIVATE_LOCAL_HEALTH_OK')
+    changed_when: false
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
   - name: Bind host metrics to the selected private address
     ansible.builtin.copy:
       content: ARGS="--web.listen-address={{ platform_monitor_hosts[item] }}:9100 --collector.textfile.directory=/var/lib/prometheus/node-exporter"
