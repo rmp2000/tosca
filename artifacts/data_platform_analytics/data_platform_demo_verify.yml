@@ -31,7 +31,7 @@
       argv:
       - /opt/apache-superset-py310/bin/python
       - /usr/local/bin/data-platform-dashboard-verify
-      stdin: '{{ platform_demo_result.stdout_lines[0] }}'
+      stdin: '{{ platform_demo_result.stdout_lines[0] | from_json | to_json }}'
     changed_when: false
     delegate_to: '{{ groups[''apache_superset_vm''][0] }}'
     connection: ssh
