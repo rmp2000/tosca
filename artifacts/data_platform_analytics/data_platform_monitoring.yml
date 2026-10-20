@@ -12,9 +12,100 @@
     connection: ssh
     become: true
     loop: '{{ platform_monitor_groups }}'
+  - name: Create the private metrics text directory
+    ansible.builtin.file:
+      path: /var/lib/prometheus/node-exporter
+      state: directory
+      mode: '0755'
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Install the immutable local health collector
+    ansible.builtin.get_url:
+      url: '{{ platform_monitor_collector_url }}'
+      checksum: '{{ platform_monitor_collector_checksum }}'
+      dest: /usr/local/bin/data-platform-collect-metrics
+      mode: '0755'
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Configure local health collection without exporting secrets
+    ansible.builtin.copy:
+      content: '{{ {''component'':item,''host'':platform_monitor_hosts[item],''services'':platform_monitor_services[item]}
+        | to_nice_json }}'
+      dest: /etc/data-platform-monitor.json
+      mode: '0600'
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Install the local health collection service
+    ansible.builtin.copy:
+      content: '[Unit]
+
+        Description=Local data platform service and flow metrics
+
+        [Service]
+
+        Type=oneshot
+
+        ExecStart=/usr/bin/python3 /usr/local/bin/data-platform-collect-metrics
+
+        '
+      dest: /etc/systemd/system/data-platform-metrics.service
+      mode: '0644'
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Schedule local health collection
+    ansible.builtin.copy:
+      content: '[Unit]
+
+        Description=Collect private data platform metrics every minute
+
+        [Timer]
+
+        OnBootSec=30s
+
+        OnUnitActiveSec=60s
+
+        [Install]
+
+        WantedBy=timers.target
+
+        '
+      dest: /etc/systemd/system/data-platform-metrics.timer
+      mode: '0644'
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Enable the health collection timer
+    ansible.builtin.systemd:
+      name: data-platform-metrics.timer
+      daemon_reload: true
+      state: started
+      enabled: true
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
+  - name: Collect and verify local health metrics now
+    ansible.builtin.command:
+      argv:
+      - /usr/bin/python3
+      - /usr/local/bin/data-platform-collect-metrics
+    changed_when: false
+    delegate_to: '{{ groups[item][0] }}'
+    connection: ssh
+    become: true
+    loop: '{{ platform_monitor_groups }}'
   - name: Bind host metrics to the selected private address
     ansible.builtin.copy:
-      content: ARGS="--web.listen-address={{ platform_monitor_hosts[item] }}:9100"
+      content: ARGS="--web.listen-address={{ platform_monitor_hosts[item] }}:9100 --collector.textfile.directory=/var/lib/prometheus/node-exporter"
       dest: /etc/default/prometheus-node-exporter
       mode: '0644'
     delegate_to: '{{ groups[item][0] }}'
@@ -73,10 +164,16 @@
     notify: Restart private monitoring
   - name: Configure availability and disk-space rules
     ansible.builtin.copy:
-      content: "groups:\n  - name: data-platform\n    rules:\n      - alert: PlatformTargetDown\n        expr: up\
-        \ == 0\n        for: 2m\n        labels: {severity: critical}\n      - alert: PlatformDiskSpaceLow\n   \
-        \     expr: node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes\
-        \ < 0.15\n        for: 5m\n        labels: {severity: warning}\n"
+      content: "groups:\n- name: data-platform\n  rules:\n  - alert: PlatformTargetDown\n    expr: up == 0\n   \
+        \ for: 2m\n    labels:\n      severity: critical\n  - alert: PlatformDiskSpaceLow\n    expr: node_filesystem_avail_bytes{fstype!~\"\
+        tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes\n      < 0.15\n    for: 5m\n    labels:\n      severity:\
+        \ warning\n  - alert: PlatformServiceDown\n    expr: platform_service_up == 0\n    for: 2m\n    labels:\n\
+        \      severity: critical\n  - alert: PlatformFlowProbeFailed\n    expr: platform_probe_success == 0 or\
+        \ time() - platform_probe_timestamp_seconds\n      > 180\n    for: 2m\n    labels:\n      severity: warning\n\
+        \  - alert: PlatformSubscriptionBacklog\n    expr: platform_pulsar_subscription_backlog > 1000\n    for:\
+        \ 5m\n    labels:\n      severity: warning\n  - alert: PlatformFlinkCheckpointStale\n    expr: platform_flink_job_running\
+        \ == 0 or time() - platform_flink_last_checkpoint_timestamp_seconds\n      > 180\n    for: 3m\n    labels:\n\
+        \      severity: critical\n"
       dest: /etc/prometheus/data-platform-rules.yml
       mode: '0644'
     notify: Restart private monitoring

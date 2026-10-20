@@ -3,9 +3,3 @@
   connection: local
   roles:
     - role: "{{ apache_superset_role_name | default('apache_superset') }}"
-
-  post_tasks:
-    - name: Report successful isolated backup restoration
-      ansible.builtin.debug:
-        msg: SUPERSET_BACKUP_RESTORE_OK
-      when: apache_superset_test_backup | default(false) | bool
