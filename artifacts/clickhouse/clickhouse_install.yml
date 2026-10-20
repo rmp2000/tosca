@@ -3,3 +3,9 @@
   connection: local
   roles:
     - role: "{{ clickhouse_role_name | default('clickhouse') }}"
+
+  post_tasks:
+    - name: Report successful isolated backup restoration
+      ansible.builtin.debug:
+        msg: CLICKHOUSE_BACKUP_RESTORE_OK
+      when: clickhouse_test_backup | default(false) | bool
